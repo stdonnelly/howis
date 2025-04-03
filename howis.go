@@ -1,8 +1,13 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"math/rand"
+	"os"
+	"os/exec"
 )
 
 // A list of responses that a personified version of a Linux command might give if the user was to ask how it was doing.
@@ -47,7 +52,56 @@ var responses = []string{
 }
 
 func main() {
-	random_number := rand.Uint32()
-	response := responses[random_number%uint32(len(responses))]
+	// Random number to pick a response from the list
+	random_number := rand.Int()
+
+	// To make it personal, we will also use the MD5 hash of the file that is being checked
+	argument_hash, err := md5OfArgumentFile()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	// Combine the random number with the hash of the argument file and get the absolute value
+	random_number ^= argument_hash
+	if random_number < 0 {
+		random_number = -random_number
+	}
+
+	response := responses[random_number%len(responses)]
 	fmt.Println(response)
+}
+
+func md5OfArgumentFile() (int, error) {
+	// Ensure an argument is provided
+	if len(os.Args) < 2 {
+		return 0, fmt.Errorf("no argument provided")
+	}
+
+	// Check if the argument is a valid executable
+	exec_path, err := exec.LookPath(os.Args[1])
+	if err != nil {
+		return 0, fmt.Errorf("could not find executable: %w", err)
+	}
+
+	// Open the file for reading
+	file, err := os.Open(exec_path)
+	if err != nil {
+		return 0, fmt.Errorf("could not open file: %w", err)
+	}
+	defer file.Close()
+
+	// Create a new MD5 hash with the file contents
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return 0, fmt.Errorf("could not read file: %w", err)
+	}
+
+	// Finally, convert the least significant 8 bytes of the hash into an integer
+	digest := hash.Sum(nil)
+	if len(digest) != 16 {
+		panic("MD5 digest is too short. This should never happen because the digest is always 16 bytes.")
+	}
+
+	return int(binary.NativeEndian.Uint64(digest[8:16])), nil
 }
